@@ -47,23 +47,23 @@ class Graphormer(pl.LightningModule):
         self.save_hyperparameters()
 
         self.num_heads = num_heads
-        if dataset_name == 'ZINC':
-            self.atom_encoder = nn.Embedding(64, hidden_dim, padding_idx=0)
-            self.edge_encoder = nn.Embedding(64, num_heads, padding_idx=0)
+        if dataset_name == 'ZINC': # 원래 ZINC였음
+            self.atom_encoder = nn.Embedding(64, hidden_dim, padding_idx=0) # 원래 64였음. 65로 하면 잘 됨.
+            self.edge_encoder = nn.Embedding(64, num_heads, padding_idx=0) # 원래 64였음. 65로 하면 잘 됨.
             self.edge_type = edge_type
             if self.edge_type == 'multi_hop':
                 self.edge_dis_encoder = nn.Embedding(
-                    40 * num_heads * num_heads, 1)
+                    40 * num_heads * num_heads, 1) #원래 40이었음
             self.spatial_pos_encoder = nn.Embedding(40, num_heads, padding_idx=0)
             self.in_degree_encoder = nn.Embedding(
                 64, hidden_dim, padding_idx=0)
             self.out_degree_encoder = nn.Embedding(
                 64, hidden_dim, padding_idx=0)
         else:
-            self.atom_encoder = nn.Embedding(
-                512 * 9 + 1, hidden_dim, padding_idx=0)
-            self.edge_encoder = nn.Embedding(
-                512 * 3 + 1, num_heads, padding_idx=0)
+            #self.atom_encoder = nn.Linear(2, hidden_dim)
+            #self.edge_encoder = nn.Linear(1, num_heads)
+            self.atom_encoder = nn.Embedding(512*2+1, hidden_dim, padding_idx=0)
+            self.edge_encoder = nn.Embedding(512*1+1, num_heads, padding_idx=0)
             self.edge_type = edge_type
             if self.edge_type == 'multi_hop':
                 self.edge_dis_encoder = nn.Embedding(
@@ -80,7 +80,7 @@ class Graphormer(pl.LightningModule):
         self.layers = nn.ModuleList(encoders)
         self.final_ln = nn.LayerNorm(hidden_dim)
 
-        if dataset_name == 'PCQM4M-LSC':
+        if dataset_name == 'abcd-struct': #'PCQM4M-LSC'
             self.out_proj = nn.Linear(hidden_dim, 1)
         else:
             self.downstream_out_proj = nn.Linear(
@@ -111,16 +111,19 @@ class Graphormer(pl.LightningModule):
 
     def forward(self, batched_data, perturb=None):
         attn_bias, spatial_pos, x = batched_data.attn_bias, batched_data.spatial_pos, batched_data.x
+        #x = torch.as_tensor(x, dtype=torch.float)
         in_degree, out_degree = batched_data.in_degree, batched_data.in_degree
         edge_input, attn_edge_type = batched_data.edge_input, batched_data.attn_edge_type
         # graph_attn_bias
+        #x = torch.LongTensor(x)
+        x = torch.as_tensor(x, dtype=torch.long) # Stella added this
         n_graph, n_node = x.size()[:2]
         graph_attn_bias = attn_bias.clone()
         graph_attn_bias = graph_attn_bias.unsqueeze(1).repeat(
             1, self.num_heads, 1, 1)  # [n_graph, n_head, n_node+1, n_node+1]
 
         # spatial pos
-        # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
+        # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node] by permute function
         spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
         graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:,
                                                         :, 1:, 1:] + spatial_pos_bias
@@ -159,8 +162,13 @@ class Graphormer(pl.LightningModule):
         graph_attn_bias = graph_attn_bias + attn_bias.unsqueeze(1)  # reset
 
         # node feauture + graph token
+        
+        #x = x.float()
         node_feature = self.atom_encoder(x).sum(
             dim=-2)           # [n_graph, n_node, n_hidden]
+        #print(node_feature) # Stella added this
+        print(torch.max(node_feature))
+        print(torch.min(node_feature))
         if self.flag and perturb is not None:
             node_feature += perturb
 
@@ -179,7 +187,7 @@ class Graphormer(pl.LightningModule):
         output = self.final_ln(output)
 
         # output part
-        if self.dataset_name == 'PCQM4M-LSC':
+        if self.dataset_name == 'abcd-struct': #'PCQM4M-LSC'
             # get whole graph rep
             output = self.out_proj(output[:, 0, :])
         else:
@@ -187,6 +195,7 @@ class Graphormer(pl.LightningModule):
         return output
 
     def training_step(self, batched_data, batch_idx):
+        print("========================== training step ==========================")
         if self.dataset_name == 'ogbg-molpcba':
             if not self.flag:
                 y_hat = self(batched_data).view(-1)
@@ -225,15 +234,16 @@ class Graphormer(pl.LightningModule):
                 loss, _ = flag_bounded(model_forward, perturb_shape, y_gt, optimizer, batched_data.x.device, self.loss_fn,
                                        m=self.flag_m, step_size=self.flag_step_size, mag=self.flag_mag)
                 self.lr_schedulers().step()
-        else:
+        else: #our data
             y_hat = self(batched_data).view(-1)
             y_gt = batched_data.y.view(-1)
             loss = self.loss_fn(y_hat, y_gt)
-        self.log('train_loss', loss, sync_dist=True)
+        self.log('train_loss', loss, sync_dist=True) #f1 loss - 시시각각 업데이트
         return loss
 
     def validation_step(self, batched_data, batch_idx):
-        if self.dataset_name in ['PCQM4M-LSC', 'ZINC']:
+        print("========================== validation step ==========================")
+        if self.dataset_name in ['PCQM4M-LSC', 'ZINC']: #, 'abcd-struct'
             y_pred = self(batched_data).view(-1)
             y_true = batched_data.y.view(-1)
         else:
@@ -244,9 +254,10 @@ class Graphormer(pl.LightningModule):
             'y_true': y_true,
         }
 
-    def validation_epoch_end(self, outputs):
+    def validation_epoch_end(self, outputs): #로그를 까보면 다 있다는 거야??
         y_pred = torch.cat([i['y_pred'] for i in outputs])
         y_true = torch.cat([i['y_true'] for i in outputs])
+        print("========================== validation epoch end ==========================")
         if self.dataset_name == 'ogbg-molpcba':
             mask = ~torch.isnan(y_true)
             loss = self.loss_fn(y_pred[mask], y_true[mask])
@@ -255,11 +266,13 @@ class Graphormer(pl.LightningModule):
             input_dict = {"y_true": y_true, "y_pred": y_pred}
             try:
                 self.log('valid_' + self.metric, self.evaluator.eval(input_dict)
-                         [self.metric], sync_dist=True)
+                         [self.metric], sync_dist=True) #valid rmse
             except:
                 pass
+        print('valid rmse is:', self.evaluator.eval(input_dict)[self.metric])
 
     def test_step(self, batched_data, batch_idx):
+        print("========================== test step ==========================")
         if self.dataset_name in ['PCQM4M-LSC', 'ZINC']:
             y_pred = self(batched_data).view(-1)
             y_true = batched_data.y.view(-1)
@@ -275,6 +288,7 @@ class Graphormer(pl.LightningModule):
     def test_epoch_end(self, outputs):
         y_pred = torch.cat([i['y_pred'] for i in outputs])
         y_true = torch.cat([i['y_true'] for i in outputs])
+        print("========================== test epoch end ==========================")
         if self.dataset_name == 'PCQM4M-LSC':
             result = y_pred.cpu().float().numpy()
             idx = torch.cat([i['idx'] for i in outputs])
@@ -283,7 +297,9 @@ class Graphormer(pl.LightningModule):
             exit(0)
         input_dict = {"y_true": y_true, "y_pred": y_pred}
         self.log('test_' + self.metric, self.evaluator.eval(input_dict)
-                 [self.metric], sync_dist=True)
+                 [self.metric], sync_dist=True) #test rmse
+        print('test rmse is:', self.evaluator.eval(input_dict)[self.metric])
+        
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(

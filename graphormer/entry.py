@@ -22,7 +22,7 @@ def cli_main():
     args = parser.parse_args()
     args.max_steps = args.tot_updates + 1
     if not args.test and not args.validate:
-        print(args)
+        print("train:", args)
     pl.seed_everything(args.seed)
 
     # ------------
@@ -78,18 +78,20 @@ def cli_main():
             flag_step_size=args.flag_step_size,
         )
     if not args.test and not args.validate:
-        print(model)
+        print("training model is:", model)
     print('total params:', sum(p.numel() for p in model.parameters()))
 
     # ------------
     # training
     # ------------
-    metric = 'valid_' + get_dataset(dm.dataset_name)['metric']
+    ## it stores average loss
+    metric = 'valid_' + get_dataset(dm.dataset_name)['metric'] #얘가 eval metric (validation 단계에서 사용)
+    #metric = 'train_loss'# modified
     dirpath = args.default_root_dir + f'/lightning_logs/checkpoints'
     checkpoint_callback = ModelCheckpoint(
-        monitor=metric,
+        monitor='train_loss',
         dirpath=dirpath,
-        filename=dm.dataset_name + '-{epoch:03d}-{' + metric + ':.4f}',
+        filename=dm.dataset_name + '-{epoch:03d}-{' + 'train_loss' + ':.4f}',
         save_top_k=100,
         mode=get_dataset(dm.dataset_name)['metric_mode'],
         save_last=True,
@@ -101,14 +103,17 @@ def cli_main():
     trainer.callbacks.append(checkpoint_callback)
     trainer.callbacks.append(LearningRateMonitor(logging_interval='step'))
 
-    if args.test:
-        result = trainer.test(model, datamodule=dm)
+    if args.test: #여기서 알아서 train, valid, test 다 해주는 듯? data.py에 trainloader 등등 다 있음.
+        print("test:", args)
+        result = trainer.test(model, datamodule=dm, ckpt_path="best")
         pprint(result)
     elif args.validate:
-        result = trainer.validate(model, datamodule=dm)
+        print("validate:", args)
+        result = trainer.validate(model, datamodule=dm, ckpt_path="best")
         pprint(result)
     else:
         trainer.fit(model, datamodule=dm)
+        
 
 
 if __name__ == '__main__':

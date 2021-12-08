@@ -4,8 +4,8 @@
 import torch
 import numpy as np
 import torch_geometric.datasets
-from ogb.graphproppred import PygGraphPropPredDataset
-from ogb.lsc.pcqm4m_pyg import PygPCQM4MDataset
+from ogb_modified.graphproppred import PygGraphPropPredDataset
+from ogb_modified.lsc.pcqm4m_pyg import PygPCQM4MDataset
 import pyximport
 
 pyximport.install(setup_args={'include_dirs': np.get_include()})
@@ -56,7 +56,7 @@ def preprocess_item(item):
     return item
 
 
-class MyGraphPropPredDataset(PygGraphPropPredDataset):
+class MyGraphPropPredDataset(PygGraphPropPredDataset): #여기에 기생할 예정
     def download(self):
         super(MyGraphPropPredDataset, self).download()
 

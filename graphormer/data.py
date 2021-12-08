@@ -8,9 +8,9 @@ from pytorch_lightning import LightningDataModule
 import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
-import ogb
-import ogb.lsc
-import ogb.graphproppred
+import ogb_modified
+import ogb_modified.lsc
+import ogb_modified.graphproppred
 from functools import partial
 
 
@@ -21,15 +21,35 @@ def get_dataset(dataset_name='abaaba'):
     global dataset
     if dataset is not None:
         return dataset
-
+    if dataset_name == 'abcd-struct':
+        dataset = {
+            'num_class': 1,
+            'loss_fn': F.l1_loss,
+            'metric': 'rmse',
+            'metric_mode': 'min',
+            'evaluator': ogb_modified.graphproppred.Evaluator('abcd-struct'),
+            'dataset': MyGraphPropPredDataset('abcd-struct', root='../../dataset'),
+            'max_node': 84,
+        }
+    
+    elif dataset_name == 'abcd-func':
+        dataset = {
+            'num_class': 1,
+            'loss_fn': F.l1_loss,
+            'metric': 'rmse',
+            'metric_mode': 'min',
+            'evaluator': ogb_modified.graphproppred.Evaluator('abcd-func'),
+            'dataset': MyGraphPropPredDataset('abcd-func', root='../../dataset'),
+            'max_node': 48,
+        }
     # max_node is set to max(max(num_val_graph_nodes), max(num_test_graph_nodes))
-    if dataset_name == 'ogbg-molpcba':
+    elif dataset_name == 'ogbg-molpcba':
         dataset = {
             'num_class': 128,
             'loss_fn': F.binary_cross_entropy_with_logits,
             'metric': 'ap',
             'metric_mode': 'max',
-            'evaluator': ogb.graphproppred.Evaluator('ogbg-molpcba'),
+            'evaluator': ogb_modified.graphproppred.Evaluator('ogbg-molpcba'),
             'dataset': MyGraphPropPredDataset('ogbg-molpcba', root='../../dataset'),
             'max_node': 128,
         }
@@ -39,7 +59,7 @@ def get_dataset(dataset_name='abaaba'):
             'loss_fn': F.binary_cross_entropy_with_logits,
             'metric': 'rocauc',
             'metric_mode': 'max',
-            'evaluator': ogb.graphproppred.Evaluator('ogbg-molhiv'),
+            'evaluator': ogb_modified.graphproppred.Evaluator('ogbg-molhiv'),
             'dataset': MyGraphPropPredDataset('ogbg-molhiv', root='../../dataset'),
             'max_node': 128,
         }
@@ -49,7 +69,7 @@ def get_dataset(dataset_name='abaaba'):
             'loss_fn': F.l1_loss,
             'metric': 'mae',
             'metric_mode': 'min',
-            'evaluator': ogb.lsc.PCQM4MEvaluator(),
+            'evaluator': ogb_modified.lsc.PCQM4MEvaluator(),
             'dataset': MyPygPCQM4MDataset(root='../../dataset'),
             'max_node': 128,
         }
@@ -59,12 +79,13 @@ def get_dataset(dataset_name='abaaba'):
             'loss_fn': F.l1_loss,
             'metric': 'mae',
             'metric_mode': 'min',
-            'evaluator': ogb.lsc.PCQM4MEvaluator(),  # same objective function, so reuse it
+            'evaluator': ogb_modified.lsc.PCQM4MEvaluator(),  # same objective function, so reuse it
             'train_dataset': MyZINCDataset(subset=True, root='../../dataset/pyg_zinc', split='train'),
             'valid_dataset': MyZINCDataset(subset=True, root='../../dataset/pyg_zinc', split='val'),
             'test_dataset': MyZINCDataset(subset=True, root='../../dataset/pyg_zinc', split='test'),
             'max_node': 128,
         }
+        
     else:
         raise NotImplementedError
 
@@ -79,7 +100,7 @@ class GraphDataModule(LightningDataModule):
 
     def __init__(
         self,
-        dataset_name: str = 'ogbg-molpcba',
+        dataset_name: str = 'abcd-struct',
         num_workers: int = 0,
         batch_size: int = 256,
         seed: int = 42,
@@ -129,7 +150,7 @@ class GraphDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False,
+            pin_memory=True,
             collate_fn=partial(collator, max_node=get_dataset(self.dataset_name)[
                                'max_node'], multi_hop_max_dist=self.multi_hop_max_dist, spatial_pos_max=self.spatial_pos_max),
         )
@@ -142,7 +163,7 @@ class GraphDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=False,
+            pin_memory=True,
             collate_fn=partial(collator, max_node=get_dataset(self.dataset_name)[
                                'max_node'], multi_hop_max_dist=self.multi_hop_max_dist, spatial_pos_max=self.spatial_pos_max),
         )

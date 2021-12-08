@@ -74,7 +74,7 @@ class Batch():
         self.edge_input = edge_input
 
     def to(self, device):
-        self.idx = self.idx.to(device)
+        self.idx = self.idx.to(device) #여기에 문제가 있다고?? 어딜봐서..?
         self.in_degree, self.out_degree = self.in_degree.to(
             device), self.out_degree.to(device)
         self.x, self.y = self.x.to(device), self.y.to(device)
